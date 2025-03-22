@@ -1,0 +1,70 @@
+{
+  "name": "okisdev",
+  "version": "0.0.2",
+  "description": "okisdev command line interface",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "author": {
+    "name": "Harry Yep",
+    "url": "https://x.com/okisdev"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/okisdev/cli.git",
+    "directory": "packages/okisdev"
+  },
+  "files": [
+    "dist"
+  ],
+  "keywords": [
+    "okisdev",
+    "cli",
+    "command",
+    "line",
+    "interface"
+  ],
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./registry": {
+      "types": "./dist/registry/index.d.ts",
+      "default": "./dist/registry/index.js"
+    }
+  },
+  "bin": "./dist/index.js",
+  "scripts": {
+    "dev": "tsup --watch",
+    "build": "tsup",
+    "start": "bun run src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "deps:check": "pnpm dlx npm-check-updates",
+    "deps:update": "pnpm dlx npm-check-updates -u && pnpm install",
+    "biome:check": "biome check",
+    "biome:format": "biome format --write",
+    "biome:lint": "biome lint --write",
+    "biome:fix": "biome format --write && biome lint --write",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "commander": "^13.1.0",
+    "fs-extra": "^11.3.0",
+    "kleur": "^4.1.5",
+    "type-fest": "^4.37.0",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
+    "@types/fs-extra": "^11.0.4",
+    "@types/node": "^22.13.11",
+    "tsup": "^8.4.0",
+    "typescript": "^5.8.2",
+    "vite-tsconfig-paths": "^5.1.4",
+    "vitest": "^3.0.9"
+  },
+  "packageManager": "bun@1.2.5"
+}
