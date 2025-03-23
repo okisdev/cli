@@ -10,7 +10,7 @@ npx okisdev <command>
 
 ### `info`
 
-Get information about okisdev.
+Get information about the current project.
 
 ```bash
 npx okisdev info

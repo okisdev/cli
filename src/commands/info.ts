@@ -8,6 +8,6 @@ export const info = new Command()
   .option('-c, --cwd <cwd>', 'the working directory. defaults to the current directory.', process.cwd())
   .action(async (opts) => {
     logger.info('> project info');
-    console.log(await getPackageInfo(opts.cwd));
+    console.log(getPackageInfo(opts.cwd));
     logger.break();
   });

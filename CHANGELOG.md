@@ -1,5 +1,9 @@
 # @okisdev/cli
 
+## 0.0.3
+
+- Add `create` command
+
 ## 0.0.2
 
 - Add `info` command
