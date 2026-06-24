@@ -1,6 +1,6 @@
 {
   "name": "okisdev",
-  "version": "0.0.3",
+  "version": "0.0.6",
   "description": "okisdev command line interface",
   "license": "MIT",
   "publishConfig": {
