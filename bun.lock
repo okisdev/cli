@@ -1,8 +1,9 @@
 {
   "lockfileVersion": 1,
+  "configVersion": 0,
   "workspaces": {
     "": {
-      "name": "@okisdev/cli",
+      "name": "okisdev",
       "dependencies": {
         "commander": "^13.1.0",
         "fs-extra": "^11.3.0",
