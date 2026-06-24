@@ -9,7 +9,7 @@ npx okisdev <command>
 ## Commands
 
 - `info` — print project info
-- `ai usage collect` — collect AI tool usage via `ccusage` and upload it to okis.dev (`AI_USAGE_INGEST_TOKEN`, `--dry` to preview)
+- `ai usage collect` — collect all-agent AI usage and session counts via `ccusage` and upload them to okis.dev (`AI_USAGE_INGEST_TOKEN`, `--dry` to preview, `--since` to scope recent days)
 
 ## License
 
