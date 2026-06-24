@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { ai } from '@/src/commands/ai';
 import { info } from '@/src/commands/info';
 import { Command } from 'commander';
 
@@ -15,6 +16,7 @@ async function main() {
     .version(packageJson.version || '1.0.0', '-v, --version', 'display the version number');
 
   program.addCommand(info);
+  program.addCommand(ai);
 
   program.parse();
 }

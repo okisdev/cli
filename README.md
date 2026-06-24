@@ -1,25 +1,16 @@
-# @okisdev/cli
+# okisdev
 
-## Usage
-
-Use the `okisdev` command to get started.
+Personal command line interface for okis.dev.
 
 ```bash
 npx okisdev <command>
 ```
 
-### `info`
+## Commands
 
-Get information about okisdev.
-
-```bash
-npx okisdev info
-```
-
-## Thanks
-
-- [shadcn/cli](https://github.com/shadcn-ui/ui)
+- `info` — print project info
+- `ai usage collect` — collect AI tool usage via `ccusage` and upload it to okis.dev (`AI_USAGE_INGEST_TOKEN`, `--dry` to preview)
 
 ## License
 
-This project is licensed under the [MIT License](./LICENSE).
+[MIT](./LICENSE)

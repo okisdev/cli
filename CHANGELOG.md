@@ -1,4 +1,8 @@
-# @okisdev/cli
+# okisdev
+
+## 0.0.3
+
+- Add `ai usage collect` command
 
 ## 0.0.2
 
