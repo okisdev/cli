@@ -66,5 +66,5 @@
     "vite-tsconfig-paths": "^5.1.4",
     "vitest": "^3.0.9"
   },
-  "packageManager": "bun@1.2.5"
+  "packageManager": "bun@1.4.1"
 }
