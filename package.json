@@ -62,7 +62,7 @@
     "@types/fs-extra": "^11.0.4",
     "@types/node": "^22.13.11",
     "tsup": "^8.4.0",
-    "typescript": "^5.8.2",
+    "typescript": "^7.0.0",
     "vite-tsconfig-paths": "^5.1.4",
     "vitest": "^3.0.9"
   },
