@@ -1,26 +1,11 @@
 import { execFileSync } from 'node:child_process';
-import { hostname } from 'node:os';
+import { DATA_TIMEZONE, dayKey } from '@/src/commands/ai/usage/dates';
+import { buildGrokUsage, defaultGrokHome, priceGrokDays } from '@/src/commands/ai/usage/grok';
+import { buildOmpUsage } from '@/src/commands/ai/usage/omp';
+import { DEFAULT_INGEST_URL, type IngestDay, type IngestSession, postUsage } from '@/src/commands/ai/usage/ingest';
+import { resolveMachine } from '@/src/commands/ai/usage/machine';
 import { logger } from '@/src/utils/logger';
 import { Command } from 'commander';
-
-const DEFAULT_URL = 'https://okis.dev/api/ai/usage/ingest';
-
-interface IngestDay {
-  date: string;
-  tool: string;
-  model: string;
-  inputTokens: number;
-  outputTokens: number;
-  cachedTokens: number;
-  cost: number;
-  sessions: number;
-}
-
-interface IngestSession {
-  date: string;
-  tool: string;
-  sessions: number;
-}
 
 interface CollectOptions {
   dry?: boolean;
@@ -65,6 +50,7 @@ function runCcusage(bin: string, args: string[]): unknown {
   const stdout = execFileSync(bin, [...args, '--json'], {
     encoding: 'utf8',
     maxBuffer: 128 * 1024 * 1024,
+    env: { ...process.env, TZ: DATA_TIMEZONE },
   });
   return JSON.parse(stdout);
 }
@@ -110,11 +96,12 @@ function buildDays(bin: string, since?: string): IngestDay[] {
   return days;
 }
 
-function inferAgentFromModel(modelName: string): string | undefined {
+export function inferAgentFromModel(modelName: string): string | undefined {
   if (modelName.startsWith('claude')) return 'claude';
   if (modelName.startsWith('gpt') || modelName.startsWith('openai/') || modelName.startsWith('o1') || modelName.startsWith('o3')) return 'codex';
   if (modelName.startsWith('glm')) return 'opencode';
   if (modelName.startsWith('stepfun')) return 'hermes';
+  if (modelName.startsWith('grok')) return 'grok';
   return undefined;
 }
 
@@ -127,7 +114,8 @@ function buildSessions(bin: string, since?: string): IngestSession[] {
     const iso = session.metadata?.lastActivity;
     const agent = session.agent;
     if (!iso || !agent) continue;
-    const date = iso.slice(0, 10);
+    const date = dayKey(iso);
+    if (!date) continue;
     const tool = toolForAgent(agent);
     const key = `${date}\t${tool}`;
     counts.set(key, (counts.get(key) ?? 0) + 1);
@@ -138,26 +126,64 @@ function buildSessions(bin: string, since?: string): IngestSession[] {
   });
 }
 
+// ccusage cannot price grok *-build ids (they are not API SKUs), so its cost for those rows is garbage; rebill them at the base model's list price.
+export async function repriceGrokBuildRows(days: IngestDay[]): Promise<IngestDay[]> {
+  const buildRows = days.filter((row) => row.tool === 'grok' && row.model.endsWith('-build'));
+  if (buildRows.length === 0) return days;
+
+  const repriced = new Map((await priceGrokDays(buildRows)).map((row) => [`${row.date}\t${row.model}`, row]));
+  return days.map((row) => (row.tool === 'grok' ? (repriced.get(`${row.date}\t${row.model}`) ?? row) : row));
+}
+
+export async function gatherUsage(bin: string, since?: string, grokHome: string = defaultGrokHome()): Promise<{ days: IngestDay[]; sessions: IngestSession[] }> {
+  const days = await repriceGrokBuildRows(buildDays(bin, since));
+  const sessions = buildSessions(bin, since);
+
+  try {
+    const grokUsage = await buildGrokUsage(grokHome, since);
+    const grokDates = new Set(days.filter((row) => row.tool === 'grok').map((row) => row.date));
+    days.push(...grokUsage.days.filter((row) => !grokDates.has(row.date)));
+    sessions.push(...grokUsage.sessions.filter((row) => !grokDates.has(row.date)));
+  } catch (error) {
+    logger.warn(`skipping Grok usage: ${(error as Error).message}`);
+  }
+
+  try {
+    const ompUsage = await buildOmpUsage(undefined, since);
+    days.push(...ompUsage.days);
+    sessions.push(...ompUsage.sessions);
+  } catch (error) {
+    logger.warn(`skipping OMP usage: ${(error as Error).message}`);
+  }
+
+  return { days, sessions };
+}
+
 export const collect = new Command()
   .name('collect')
   .description('collect AI usage via ccusage and upload it to the ingest endpoint')
   .option('-d, --dry', 'parse and print without uploading', false)
-  .option('-u, --url <url>', 'ingest endpoint URL', process.env.AI_USAGE_INGEST_URL ?? DEFAULT_URL)
+  .option('-u, --url <url>', 'ingest endpoint URL', process.env.AI_USAGE_INGEST_URL ?? DEFAULT_INGEST_URL)
   .option('-t, --token <token>', 'bearer token (AI_USAGE_INGEST_TOKEN)', process.env.AI_USAGE_INGEST_TOKEN)
-  .option('-m, --machine <name>', 'machine identifier', process.env.AI_USAGE_MACHINE ?? hostname())
+  .option('-m, --machine <name>', 'machine identifier', resolveMachine())
   .option('--ccusage <bin>', 'path to the ccusage binary', process.env.CCUSAGE_BIN ?? 'ccusage')
   .option('-s, --since <date>', 'only collect on or after this date (YYYY-MM-DD)', process.env.AI_USAGE_SINCE)
+  .passThroughOptions()
   .action(async (opts: CollectOptions) => {
     const bin = opts.ccusage ?? 'ccusage';
     let days: IngestDay[];
     let sessions: IngestSession[];
     try {
-      days = buildDays(bin, opts.since);
-      sessions = buildSessions(bin, opts.since);
+      ({ days, sessions } = await gatherUsage(bin, opts.since));
     } catch (error) {
       logger.error(`failed to run ccusage: ${(error as Error).message}`);
       logger.warn('ensure ccusage is on PATH or pass --ccusage <bin>');
       process.exit(1);
+    }
+
+    if (days.length === 0 && sessions.length === 0) {
+      logger.warn('no usable AI usage found');
+      return;
     }
 
     const dry = opts.dry || !opts.token;
@@ -182,17 +208,13 @@ export const collect = new Command()
       return;
     }
 
-    const response = await fetch(opts.url as string, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        authorization: `Bearer ${opts.token}`,
-      },
-      body: JSON.stringify({ machine: opts.machine, days, sessions }),
+    const result = await postUsage({
+      url: opts.url as string,
+      token: opts.token as string,
+      machine: opts.machine as string,
+      tz: DATA_TIMEZONE,
+      days,
+      sessions,
     });
-
-    logger.log(`POST ${opts.url} -> ${response.status}`);
-    const text = await response.text();
-    if (text) logger.log(text);
-    if (!response.ok) process.exit(1);
+    if (!result.ok) process.exit(1);
   });
