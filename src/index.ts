@@ -13,6 +13,7 @@ async function main() {
   const program = new Command()
     .name('okisdev')
     .description('okisdev cli')
+    .enablePositionalOptions()
     .version(packageJson.version || '1.0.0', '-v, --version', 'display the version number');
 
   program.addCommand(info);
