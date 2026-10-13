@@ -17,7 +17,6 @@ interface ProxyDay {
 }
 
 interface ProxyResponse {
-  machine?: string;
   days?: ProxyDay[];
 }
 
@@ -55,7 +54,6 @@ export const proxy = new Command()
   .option('-d, --dry', 'fetch and print without uploading', false)
   .option('-u, --url <url>', 'ingest endpoint URL', process.env.AI_USAGE_INGEST_URL ?? DEFAULT_INGEST_URL)
   .option('-t, --token <token>', 'bearer token (AI_USAGE_INGEST_TOKEN)', process.env.AI_USAGE_INGEST_TOKEN)
-  .option('-m, --machine <name>', 'machine identifier', process.env.AI_USAGE_MACHINE ?? 'llm-proxy')
   .option('-s, --since <date>', 'only collect on or after this date (YYYY-MM-DD)', process.env.AI_USAGE_SINCE)
   .option('--proxy-url <url>', 'llm-proxy usage feed URL', process.env.LLM_PROXY_URL ?? DEFAULT_PROXY_URL)
   .option('--proxy-token <token>', 'llm-proxy feed bearer token (LLM_PROXY_USAGE_TOKEN)', process.env.LLM_PROXY_USAGE_TOKEN)
@@ -88,7 +86,7 @@ export const proxy = new Command()
         tokensByTool[row.tool] = (tokensByTool[row.tool] ?? 0) + total;
         tokensByModel[row.model] = (tokensByModel[row.model] ?? 0) + total;
       }
-      logger.log(`machine:  ${opts.machine}`);
+      logger.log('source:   llm-proxy');
       logger.log(`feed:     ${opts.proxyUrl}`);
       logger.log(`days:     ${days.length}`);
       logger.log(`tokens by tool: ${JSON.stringify(tokensByTool)}`);
@@ -103,7 +101,7 @@ export const proxy = new Command()
     const result = await postUsage({
       url: opts.url as string,
       token: opts.token as string,
-      machine: opts.machine as string,
+      source: { machine: 'llm-proxy' },
       tz: tzLabel(opts.tz as string),
       days,
       sessions: [],

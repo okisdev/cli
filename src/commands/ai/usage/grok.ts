@@ -1,9 +1,9 @@
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { homedir, hostname } from 'node:os';
 import { join } from 'node:path';
 import { DATA_TIMEZONE, dayKey } from '@/src/commands/ai/usage/dates';
+import { resolveHardwareId } from '@/src/commands/ai/usage/hardware';
 import { DEFAULT_INGEST_URL, type IngestDay, type IngestSession, postUsage } from '@/src/commands/ai/usage/ingest';
-import { resolveMachine } from '@/src/commands/ai/usage/machine';
 import { estimateCost, fetchGrokPricing } from '@/src/commands/ai/usage/pricing';
 import { logger } from '@/src/utils/logger';
 import { Command } from 'commander';
@@ -18,7 +18,6 @@ interface GrokOptions {
   dry?: boolean;
   url?: string;
   token?: string;
-  machine?: string;
   since?: string;
   grokHome?: string;
 }
@@ -224,7 +223,6 @@ export const grok = new Command()
   .option('-d, --dry', 'parse and print without uploading', false)
   .option('-u, --url <url>', 'ingest endpoint URL', process.env.AI_USAGE_INGEST_URL ?? DEFAULT_INGEST_URL)
   .option('-t, --token <token>', 'bearer token (AI_USAGE_INGEST_TOKEN)', process.env.AI_USAGE_INGEST_TOKEN)
-  .option('-m, --machine <name>', 'machine identifier', resolveMachine())
   .option('-s, --since <date>', 'only collect on or after this date (YYYY-MM-DD)', process.env.AI_USAGE_SINCE)
   .option('--grok-home <dir>', 'Grok CLI data directory', defaultGrokHome())
   .action(async (opts: GrokOptions) => {
@@ -244,13 +242,15 @@ export const grok = new Command()
       return;
     }
 
+    const source = { hardwareId: resolveHardwareId(), name: hostname() };
     const dry = opts.dry || !opts.token;
     if (dry) {
       const tokensByModel: Record<string, number> = {};
       for (const row of days) {
         tokensByModel[row.model] = (tokensByModel[row.model] ?? 0) + row.inputTokens + row.outputTokens + row.cachedTokens;
       }
-      logger.log(`machine:   ${opts.machine}`);
+      logger.log(`hardware:  ${source.hardwareId}`);
+      logger.log(`name:      ${source.name}`);
       logger.log(`grok home: ${opts.grokHome}`);
       logger.log(`days:      ${days.length}`);
       const sessionDates = sessions.map((session) => session.date).sort();
@@ -268,7 +268,7 @@ export const grok = new Command()
       const result = await postUsage({
         url: opts.url as string,
         token: opts.token as string,
-        machine: opts.machine as string,
+        source,
         tz: DATA_TIMEZONE,
         days,
         sessions,

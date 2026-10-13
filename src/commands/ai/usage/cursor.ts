@@ -1,7 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { DATA_TIMEZONE, csvDay } from '@/src/commands/ai/usage/dates';
 import { DEFAULT_INGEST_URL, type IngestDay, type IngestSession, postUsage } from '@/src/commands/ai/usage/ingest';
-import { resolveMachine } from '@/src/commands/ai/usage/machine';
 import { canonicalCursorModel, estimateCost, fetchCursorPricing } from '@/src/commands/ai/usage/pricing';
 import { logger } from '@/src/utils/logger';
 import { Command } from 'commander';
@@ -13,7 +12,6 @@ interface CursorOptions {
   dry?: boolean;
   url?: string;
   token?: string;
-  machine?: string;
   since?: string;
 }
 
@@ -181,7 +179,6 @@ export const cursor = new Command()
   .option('-d, --dry', 'parse and print without uploading', false)
   .option('-u, --url <url>', 'ingest endpoint URL', process.env.AI_USAGE_INGEST_URL ?? DEFAULT_INGEST_URL)
   .option('-t, --token <token>', 'bearer token (AI_USAGE_INGEST_TOKEN)', process.env.AI_USAGE_INGEST_TOKEN)
-  .option('-m, --machine <name>', 'machine identifier', resolveMachine())
   .option('-s, --since <date>', 'only collect on or after this date (YYYY-MM-DD)', process.env.AI_USAGE_SINCE)
   .action(async (opts: CursorOptions) => {
     let days: IngestDay[];
@@ -206,7 +203,7 @@ export const cursor = new Command()
       for (const row of days) {
         tokensByModel[row.model] = (tokensByModel[row.model] ?? 0) + row.inputTokens + row.outputTokens + row.cachedTokens;
       }
-      logger.log(`machine:  ${opts.machine}`);
+      logger.log('source:   cursor');
       logger.log(`csv:      ${opts.csv}`);
       logger.log(`days:     ${days.length}`);
       logger.log(`sessions: ${sessions.length}`);
@@ -222,7 +219,7 @@ export const cursor = new Command()
     const result = await postUsage({
       url: opts.url as string,
       token: opts.token as string,
-      machine: opts.machine as string,
+      source: { machine: 'cursor' },
       tz: DATA_TIMEZONE,
       days,
       sessions,

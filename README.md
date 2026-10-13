@@ -16,6 +16,10 @@ npx okisdev <command>
 - `ai usage omp` — collect Oh My Pi usage from `~/.omp/agent/sessions` and upload it to okis.dev (`OMP_HOME` to override the data directory, `AI_USAGE_INGEST_TOKEN` to upload, `--dry` to preview, `--since` to scope recent days)
 - `ai usage watch` — long-running watch that polls okis.dev for visitor traffic and uploads local plus llm-proxy usage on a visit or on a fallback interval (`AI_USAGE_INGEST_TOKEN` required unless `--dry`, `--poll-seconds`/`--interval-minutes`/`--min-gap-minutes`/`--since-days` to tune timing, `LLM_PROXY_USAGE_TOKEN` optional for the llm-proxy leg)
 
+Device uploads from `collect`, `grok`, `omp`, and the local watch leg use a hash of the device's hardware ID. The first upload registers the device under its hostname. Rename a device in the database. Cursor and llm-proxy uploads use the fixed sources `cursor` and `llm-proxy`.
+
+Watch polls for the device's last ingest before its startup upload. Each upload collects from the earlier of that ingest day and the `--since-days` window. A device with no previous ingest uploads its full history; if polling fails, watch uses the `--since-days` window.
+
 ## License
 
 [MIT](./LICENSE)

@@ -6,4 +6,13 @@ import { proxy } from '@/src/commands/ai/usage/proxy';
 import { watch } from '@/src/commands/ai/usage/watch';
 import { Command } from 'commander';
 
-export const usage = new Command().name('usage').enablePositionalOptions().description('collect and publish AI tool usage').addCommand(collect).addCommand(cursor).addCommand(grok).addCommand(omp).addCommand(proxy).addCommand(watch);
+export const usage = new Command()
+  .name('usage')
+  .enablePositionalOptions()
+  .description('collect and publish AI tool usage')
+  .addCommand(collect)
+  .addCommand(cursor)
+  .addCommand(grok)
+  .addCommand(omp)
+  .addCommand(proxy)
+  .addCommand(watch);

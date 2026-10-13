@@ -1,7 +1,8 @@
-import { DATA_TIMEZONE, dayKey, tzLabel } from '@/src/commands/ai/usage/dates';
+import { hostname } from 'node:os';
 import { gatherUsage } from '@/src/commands/ai/usage/collect';
+import { DATA_TIMEZONE, dayKey, tzLabel } from '@/src/commands/ai/usage/dates';
+import { resolveHardwareId } from '@/src/commands/ai/usage/hardware';
 import { DEFAULT_INGEST_URL, type IngestDay, type IngestSession, postUsage } from '@/src/commands/ai/usage/ingest';
-import { resolveMachine } from '@/src/commands/ai/usage/machine';
 import { DEFAULT_PROXY_URL, fetchProxyDays } from '@/src/commands/ai/usage/proxy';
 import { logger } from '@/src/utils/logger';
 import { Command } from 'commander';
@@ -18,7 +19,6 @@ interface WatchOptions {
   dry?: boolean;
   url?: string;
   token?: string;
-  machine?: string;
   ccusage?: string;
   proxyUrl?: string;
   proxyToken?: string;
@@ -30,6 +30,7 @@ interface WatchOptions {
 }
 
 interface PollResponse {
+  machine: string | null;
   lastVisitAt: string | null;
   lastIngestAt: string | null;
   stale: boolean;
@@ -60,8 +61,12 @@ function pollUrlFrom(ingestUrl: string): string {
   return ingestUrl.replace(/\/ingest$/, '/poll');
 }
 
-function sinceFrom(sinceDays: number): string | undefined {
-  return dayKey(new Date(Date.now() - sinceDays * DAY_MS)) ?? undefined;
+export function sinceFor(lastIngestAt: string | null | undefined, sinceDays: number, now: number): string | undefined {
+  if (lastIngestAt === null) return undefined;
+  const windowStart = dayKey(new Date(now - sinceDays * DAY_MS)) ?? undefined;
+  if (lastIngestAt === undefined) return windowStart;
+  const ingestedDay = dayKey(lastIngestAt) ?? undefined;
+  return ingestedDay && windowStart ? (ingestedDay < windowStart ? ingestedDay : windowStart) : windowStart;
 }
 
 export const watch = new Command()
@@ -70,7 +75,6 @@ export const watch = new Command()
   .option('-d, --dry', 'log decisions and collected counts without uploading', false)
   .option('-u, --url <url>', 'ingest endpoint URL', process.env.AI_USAGE_INGEST_URL ?? DEFAULT_INGEST_URL)
   .option('-t, --token <token>', 'bearer token (AI_USAGE_INGEST_TOKEN)', process.env.AI_USAGE_INGEST_TOKEN)
-  .option('-m, --machine <name>', 'machine identifier', resolveMachine())
   .option('--ccusage <bin>', 'path to the ccusage binary', process.env.CCUSAGE_BIN ?? 'ccusage')
   .option('--proxy-url <url>', 'llm-proxy usage feed URL', process.env.LLM_PROXY_URL ?? DEFAULT_PROXY_URL)
   .option('--proxy-token <token>', 'llm-proxy feed bearer token (LLM_PROXY_USAGE_TOKEN)', process.env.LLM_PROXY_USAGE_TOKEN)
@@ -85,7 +89,7 @@ export const watch = new Command()
       process.exit(1);
     }
 
-    const machine = opts.machine as string;
+    const source = { hardwareId: resolveHardwareId(), name: hostname() };
     const url = opts.url as string;
     const pollUrl = pollUrlFrom(url);
     const pollMs = Math.max(1, Number(opts.pollSeconds)) * 1_000;
@@ -98,6 +102,7 @@ export const watch = new Command()
     }
 
     let lastUploadAt: number | undefined;
+    let lastIngestAt: string | null | undefined;
 
     async function uploadLocal(reason: string, since: string | undefined): Promise<void> {
       let days: IngestDay[];
@@ -110,7 +115,9 @@ export const watch = new Command()
       }
 
       if (opts.dry) {
-        logger.log(`[${reason}] would upload ${days.length} day rows, ${sessions.length} session rows for ${machine}`);
+        logger.log(`[${reason}] would upload ${days.length} day rows, ${sessions.length} session rows`);
+        logger.log(`hardware: ${source.hardwareId}`);
+        logger.log(`name:     ${source.name}`);
         return;
       }
 
@@ -120,10 +127,10 @@ export const watch = new Command()
       }
 
       try {
-        const result = await postUsage({ url, token: opts.token as string, machine, tz: DATA_TIMEZONE, days, sessions });
+        const result = await postUsage({ url, token: opts.token as string, source, tz: DATA_TIMEZONE, days, sessions });
         if (result.ok) {
           lastUploadAt = Date.now();
-          logger.log(`[${reason}] uploaded ${days.length} day rows, ${sessions.length} session rows -> ${result.status}`);
+          logger.log(`[${reason}] uploaded ${days.length} day rows, ${sessions.length} session rows -> ${result.status}, machine: ${result.machine ?? 'unknown'}`);
         } else {
           logger.warn(`[${reason}] upload rejected -> ${result.status}`);
         }
@@ -144,10 +151,11 @@ export const watch = new Command()
 
         if (opts.dry) {
           logger.log(`[${reason}] would upload ${days.length} llm-proxy day rows`);
+          logger.log('source: llm-proxy');
           return;
         }
 
-        const result = await postUsage({ url, token: opts.token as string, machine: 'llm-proxy', tz: tzLabel(opts.tz as string), days, sessions: [] });
+        const result = await postUsage({ url, token: opts.token as string, source: { machine: 'llm-proxy' }, tz: tzLabel(opts.tz as string), days, sessions: [] });
         logger.log(`[${reason}] uploaded ${days.length} llm-proxy day rows -> ${result.status}`);
       } catch (error) {
         logger.warn(`[${reason}] failed to upload llm-proxy usage: ${(error as Error).message}`);
@@ -155,15 +163,15 @@ export const watch = new Command()
     }
 
     async function runUploadCycle(reason: string): Promise<void> {
-      const since = sinceFrom(sinceDays);
+      const since = sinceFor(lastIngestAt, sinceDays, Date.now());
       await uploadLocal(reason, since);
       await uploadProxy(reason, since);
     }
 
-    async function pollTick(): Promise<void> {
+    async function pollOnce(): Promise<PollResponse | undefined> {
       let poll: PollResponse;
       try {
-        const response = await fetch(`${pollUrl}?machine=${encodeURIComponent(machine)}`, {
+        const response = await fetch(`${pollUrl}?hardwareId=${encodeURIComponent(source.hardwareId)}`, {
           headers: opts.token ? { authorization: `Bearer ${opts.token}` } : undefined,
           signal: AbortSignal.timeout(POLL_TIMEOUT_MS),
         });
@@ -177,6 +185,13 @@ export const watch = new Command()
         return;
       }
 
+      lastIngestAt = poll.lastIngestAt;
+      return poll;
+    }
+
+    async function pollTick(): Promise<void> {
+      const poll = await pollOnce();
+      if (!poll) return;
       const decision = decideUpload({ now: Date.now(), lastUploadAt, stale: poll.stale, intervalMs, minGapMs });
       if (decision.upload && decision.reason) {
         await runUploadCycle(decision.reason);
@@ -191,6 +206,7 @@ export const watch = new Command()
       }, pollMs);
     }
 
+    await pollOnce();
     await runUploadCycle('startup');
     scheduleTick();
   });

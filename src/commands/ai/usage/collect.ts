@@ -1,9 +1,10 @@
 import { execFileSync } from 'node:child_process';
+import { hostname } from 'node:os';
 import { DATA_TIMEZONE, dayKey } from '@/src/commands/ai/usage/dates';
 import { buildGrokUsage, defaultGrokHome, priceGrokDays } from '@/src/commands/ai/usage/grok';
-import { buildOmpUsage } from '@/src/commands/ai/usage/omp';
+import { resolveHardwareId } from '@/src/commands/ai/usage/hardware';
 import { DEFAULT_INGEST_URL, type IngestDay, type IngestSession, postUsage } from '@/src/commands/ai/usage/ingest';
-import { resolveMachine } from '@/src/commands/ai/usage/machine';
+import { buildOmpUsage } from '@/src/commands/ai/usage/omp';
 import { logger } from '@/src/utils/logger';
 import { Command } from 'commander';
 
@@ -11,7 +12,6 @@ interface CollectOptions {
   dry?: boolean;
   url?: string;
   token?: string;
-  machine?: string;
   ccusage?: string;
   since?: string;
 }
@@ -165,7 +165,6 @@ export const collect = new Command()
   .option('-d, --dry', 'parse and print without uploading', false)
   .option('-u, --url <url>', 'ingest endpoint URL', process.env.AI_USAGE_INGEST_URL ?? DEFAULT_INGEST_URL)
   .option('-t, --token <token>', 'bearer token (AI_USAGE_INGEST_TOKEN)', process.env.AI_USAGE_INGEST_TOKEN)
-  .option('-m, --machine <name>', 'machine identifier', resolveMachine())
   .option('--ccusage <bin>', 'path to the ccusage binary', process.env.CCUSAGE_BIN ?? 'ccusage')
   .option('-s, --since <date>', 'only collect on or after this date (YYYY-MM-DD)', process.env.AI_USAGE_SINCE)
   .passThroughOptions()
@@ -186,6 +185,7 @@ export const collect = new Command()
       return;
     }
 
+    const source = { hardwareId: resolveHardwareId(), name: hostname() };
     const dry = opts.dry || !opts.token;
     if (dry) {
       const tokensByTool: Record<string, number> = {};
@@ -196,7 +196,8 @@ export const collect = new Command()
       for (const row of sessions) {
         sessionsByTool[row.tool] = (sessionsByTool[row.tool] ?? 0) + row.sessions;
       }
-      logger.log(`machine:  ${opts.machine}`);
+      logger.log(`hardware: ${source.hardwareId}`);
+      logger.log(`name:     ${source.name}`);
       logger.log(`days:     ${days.length}`);
       logger.log(`sessions: ${sessions.length}`);
       logger.log(`tokens by tool: ${JSON.stringify(tokensByTool)}`);
@@ -211,7 +212,7 @@ export const collect = new Command()
     const result = await postUsage({
       url: opts.url as string,
       token: opts.token as string,
-      machine: opts.machine as string,
+      source,
       tz: DATA_TIMEZONE,
       days,
       sessions,

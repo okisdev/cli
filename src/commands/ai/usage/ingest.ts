@@ -22,7 +22,7 @@ export interface IngestSession {
 interface PostUsageOptions {
   url: string;
   token: string;
-  machine: string;
+  source: { hardwareId: string; name: string } | { machine: string };
   tz: string;
   days: IngestDay[];
   sessions: IngestSession[];
@@ -31,6 +31,7 @@ interface PostUsageOptions {
 export interface PostUsageResult {
   ok: boolean;
   status: number;
+  machine?: string;
 }
 
 export async function postUsage(opts: PostUsageOptions): Promise<PostUsageResult> {
@@ -40,11 +41,20 @@ export async function postUsage(opts: PostUsageOptions): Promise<PostUsageResult
       'content-type': 'application/json',
       authorization: `Bearer ${opts.token}`,
     },
-    body: JSON.stringify({ machine: opts.machine, tz: opts.tz, days: opts.days, sessions: opts.sessions }),
+    body: JSON.stringify({ ...opts.source, tz: opts.tz, days: opts.days, sessions: opts.sessions }),
   });
 
   logger.log(`POST ${opts.url} -> ${response.status}`);
   const text = await response.text();
   if (text) logger.log(text);
-  return { ok: response.ok, status: response.status };
+  let machine: string | undefined;
+  if (response.ok && text) {
+    try {
+      const payload: unknown = JSON.parse(text);
+      if (typeof payload === 'object' && payload !== null && 'machine' in payload && typeof payload.machine === 'string') machine = payload.machine;
+    } catch {
+      machine = undefined;
+    }
+  }
+  return { ok: response.ok, status: response.status, machine };
 }
