@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { hostname } from 'node:os';
 import { DATA_TIMEZONE, dayKey } from '@/src/commands/ai/usage/dates';
+import { buildDevinUsage } from '@/src/commands/ai/usage/devin';
 import { buildGrokUsage, defaultGrokHome, priceGrokDays } from '@/src/commands/ai/usage/grok';
 import { resolveHardwareId } from '@/src/commands/ai/usage/hardware';
 import { DEFAULT_INGEST_URL, type IngestDay, type IngestSession, postUsage } from '@/src/commands/ai/usage/ingest';
@@ -28,8 +29,7 @@ interface ModelBreakdown {
 interface DailyItem {
   period?: string;
   date?: string;
-  metadata?: { agents?: string[] };
-  modelBreakdowns?: ModelBreakdown[];
+  agents?: { agent?: string; modelBreakdowns?: ModelBreakdown[] }[];
 }
 
 interface SessionItem {
@@ -55,54 +55,36 @@ function runCcusage(bin: string, args: string[]): unknown {
   return JSON.parse(stdout);
 }
 
-function buildDays(bin: string, since?: string): IngestDay[] {
-  const args = ['daily'];
-  if (since) args.push('--since', since);
-  const payload = runCcusage(bin, args) as { daily?: DailyItem[] };
-  const items = payload.daily ?? [];
-
-  // Learn model -> agent from single-agent days (where attribution is certain),
-  // so multi-agent days can be split without a hardcoded model-prefix table.
-  const modelToAgent = new Map<string, string>();
-  for (const item of items) {
-    const agents = item.metadata?.agents ?? [];
-    if (agents.length === 1) {
-      for (const model of item.modelBreakdowns ?? []) {
-        if (model.modelName) modelToAgent.set(model.modelName, agents[0]);
-      }
-    }
-  }
-
+export function daysFromDaily(items: DailyItem[]): IngestDay[] {
   const days: IngestDay[] = [];
   for (const item of items) {
     const date = item.period ?? item.date;
     if (!date) continue;
-    const agents = item.metadata?.agents ?? [];
-    for (const model of item.modelBreakdowns ?? []) {
-      if (!model.modelName) continue;
-      const agent = agents.length === 1 ? agents[0] : (modelToAgent.get(model.modelName) ?? inferAgentFromModel(model.modelName) ?? 'unknown');
-      days.push({
-        date,
-        tool: toolForAgent(agent),
-        model: model.modelName,
-        inputTokens: model.inputTokens ?? 0,
-        outputTokens: model.outputTokens ?? 0,
-        cachedTokens: sum(model.cacheCreationTokens, model.cacheReadTokens),
-        cost: model.cost ?? 0,
-        sessions: 0,
-      });
+    for (const { agent, modelBreakdowns } of item.agents ?? []) {
+      if (!agent) continue;
+      for (const model of modelBreakdowns ?? []) {
+        if (!model.modelName) continue;
+        days.push({
+          date,
+          tool: toolForAgent(agent),
+          model: model.modelName,
+          inputTokens: model.inputTokens ?? 0,
+          outputTokens: model.outputTokens ?? 0,
+          cachedTokens: sum(model.cacheCreationTokens, model.cacheReadTokens),
+          cost: model.cost ?? 0,
+          sessions: 0,
+        });
+      }
     }
   }
   return days;
 }
 
-export function inferAgentFromModel(modelName: string): string | undefined {
-  if (modelName.startsWith('claude')) return 'claude';
-  if (modelName.startsWith('gpt') || modelName.startsWith('openai/') || modelName.startsWith('o1') || modelName.startsWith('o3')) return 'codex';
-  if (modelName.startsWith('glm')) return 'opencode';
-  if (modelName.startsWith('stepfun')) return 'hermes';
-  if (modelName.startsWith('grok')) return 'grok';
-  return undefined;
+function buildDays(bin: string, since?: string): IngestDay[] {
+  const args = ['daily', '--by-agent'];
+  if (since) args.push('--since', since);
+  const payload = runCcusage(bin, args) as { daily?: DailyItem[] };
+  return daysFromDaily(payload.daily ?? []);
 }
 
 function buildSessions(bin: string, since?: string): IngestSession[] {
@@ -146,6 +128,14 @@ export async function gatherUsage(bin: string, since?: string, grokHome: string 
     sessions.push(...grokUsage.sessions.filter((row) => !grokDates.has(row.date)));
   } catch (error) {
     logger.warn(`skipping Grok usage: ${(error as Error).message}`);
+  }
+
+  try {
+    const devinUsage = buildDevinUsage(undefined, since);
+    days.push(...devinUsage.days);
+    sessions.push(...devinUsage.sessions);
+  } catch (error) {
+    logger.warn(`skipping Devin usage: ${(error as Error).message}`);
   }
 
   try {
