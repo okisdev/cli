@@ -1,23 +1,26 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { inferAgentFromModel, repriceGrokBuildRows } from './collect';
+import { daysFromDaily, repriceGrokBuildRows } from './collect';
 
-describe('inferAgentFromModel', () => {
-  it('maps grok build and CLI models to grok', () => {
-    expect(inferAgentFromModel('grok-4.6-build')).toBe('grok');
-    expect(inferAgentFromModel('grok-4.5-build')).toBe('grok');
-    expect(inferAgentFromModel('grok-4.6')).toBe('grok');
+describe('daysFromDaily', () => {
+  it('attributes every model to the agent ccusage reports it under', () => {
+    const days = daysFromDaily([
+      {
+        period: '2026-11-19',
+        agents: [
+          { agent: 'antigravity', modelBreakdowns: [{ modelName: 'gemini-4-neon', inputTokens: 10, outputTokens: 2, cacheReadTokens: 3, cacheCreationTokens: 1, cost: 0.5 }] },
+          { agent: 'claude', modelBreakdowns: [{ modelName: 'claude-opus-5-5', inputTokens: 1 }] },
+        ],
+      },
+    ]);
+
+    expect(days).toEqual([
+      { date: '2026-11-19', tool: 'antigravity', model: 'gemini-4-neon', inputTokens: 10, outputTokens: 2, cachedTokens: 4, cost: 0.5, sessions: 0 },
+      { date: '2026-11-19', tool: 'claude-code', model: 'claude-opus-5-5', inputTokens: 1, outputTokens: 0, cachedTokens: 0, cost: 0, sessions: 0 },
+    ]);
   });
 
-  it('keeps the existing prefix mappings', () => {
-    expect(inferAgentFromModel('claude-opus-5')).toBe('claude');
-    expect(inferAgentFromModel('gpt-5.6-terra')).toBe('codex');
-    expect(inferAgentFromModel('openai/gpt-5')).toBe('codex');
-    expect(inferAgentFromModel('glm-5.2')).toBe('opencode');
-    expect(inferAgentFromModel('stepfun-1')).toBe('hermes');
-  });
-
-  it('returns undefined when no prefix matches', () => {
-    expect(inferAgentFromModel('composer-2.5')).toBeUndefined();
+  it('skips rows without an agent or model', () => {
+    expect(daysFromDaily([{ period: '2026-11-19', agents: [{ modelBreakdowns: [{ modelName: 'x' }] }, { agent: 'codex', modelBreakdowns: [{}] }] }])).toEqual([]);
   });
 });
 
