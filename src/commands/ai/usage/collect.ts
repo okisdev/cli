@@ -131,7 +131,7 @@ export async function gatherUsage(bin: string, since?: string, grokHome: string 
   }
 
   try {
-    const devinUsage = buildDevinUsage(undefined, since);
+    const devinUsage = await buildDevinUsage(undefined, since);
     days.push(...devinUsage.days);
     sessions.push(...devinUsage.sessions);
   } catch (error) {

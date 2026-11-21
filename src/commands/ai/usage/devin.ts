@@ -1,7 +1,6 @@
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { DatabaseSync } from 'node:sqlite';
 import { dayKey } from '@/src/commands/ai/usage/dates';
 import type { IngestDay, IngestSession } from '@/src/commands/ai/usage/ingest';
 
@@ -54,9 +53,10 @@ export function aggregateDevinGenerations(generations: DevinGeneration[], since?
   };
 }
 
-export function buildDevinUsage(dbPath: string = defaultDevinDb(), since?: string): { days: IngestDay[]; sessions: IngestSession[] } {
+export async function buildDevinUsage(dbPath: string = defaultDevinDb(), since?: string): Promise<{ days: IngestDay[]; sessions: IngestSession[] }> {
   if (!existsSync(dbPath)) return { days: [], sessions: [] };
 
+  const { DatabaseSync } = await import('node:sqlite');
   const db = new DatabaseSync(dbPath, { readOnly: true });
   try {
     const generations = db
